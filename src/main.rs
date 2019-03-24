@@ -18,29 +18,39 @@ fn main() {
     }
 }
 
-fn run_file(path: &str) -> std::io::Result<()> {
+fn run_file(path: &str) -> io::Result<()> {
     let mut file = File::open(path)?;
     let mut buf = String::new();
     file.read_to_string(&mut buf)?;
-    run(&buf);
-    Ok(())
+    let had_error = run(&buf);
+    if had_error {
+        // TODO:
+        panic!("had_error!")
+    } else {
+        Ok(())
+    }
 }
 
-fn run_prompt() -> std::io::Result<()> {
+fn run_prompt() -> io::Result<()> {
     let stdin = io::stdin();
     loop {
         print!("> ");
         io::stdout().flush().unwrap();
         let mut buf = String::new();
         stdin.read_line(&mut buf)?;
-        run(buf.trim_end())
+        let _had_error = run(buf.trim_end());
     }
 }
 
-fn run(source: &str) {
-    let mut scanner = Scanner::new(source);
+fn run(source: &str) -> bool {
+    fn print_error(line: u64, msg: &str) {
+        eprintln!("[line {}] Error: {}", line, msg);
+    }
+
+    let mut scanner = Scanner::new(source, &print_error);
     let tokens = scanner.scan_tokens();
     for token in tokens {
         println!("{:?}", token);
     }
+    scanner.had_error()
 }

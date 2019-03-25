@@ -2,7 +2,7 @@ use std::str;
 
 pub type ErrorCallback = Fn(u64, &str) -> ();
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Copy, Clone)]
 pub enum TokenType {
     // Single-character tokens.
     LeftParen,
@@ -376,5 +376,46 @@ impl Scanner<'_> {
             current: 0,
             line: 1,
         }
+    }
+}
+
+mod tests {
+    use super::*;
+
+    #[allow(dead_code)]
+    fn dummy_handle_err(_line: u64, _msg: &str) {}
+
+    #[test]
+    fn test_scan_tokens_appends_eof() {
+        let source = "";
+        let mut scanner = Scanner::new(source, &dummy_handle_err);
+        let mut token_types: Vec<TokenType> = scanner
+            .scan_tokens()
+            .into_iter()
+            .map(|t| t.token_type)
+            .collect();
+        assert_eq!(token_types.pop(), Some(TokenType::Eof));
+        assert_eq!(token_types.pop(), None);
+    }
+
+    #[test]
+    fn test_scan_tokens_single_char_tokens() {
+        let source = "(){},.-+;/*";
+        let mut scanner = Scanner::new(source, &dummy_handle_err);
+        let tokens: Vec<&Token> = scanner.scan_tokens().into_iter().collect();
+
+        let mut token_types = tokens.iter().map(|t| t.token_type);
+        assert_eq!(token_types.next(), Some(TokenType::LeftParen));
+        assert_eq!(token_types.next(), Some(TokenType::RightParen));
+        assert_eq!(token_types.next(), Some(TokenType::LeftBrace));
+        assert_eq!(token_types.next(), Some(TokenType::RightBrace));
+        assert_eq!(token_types.next(), Some(TokenType::Comma));
+        assert_eq!(token_types.next(), Some(TokenType::Dot));
+        assert_eq!(token_types.next(), Some(TokenType::Minus));
+        assert_eq!(token_types.next(), Some(TokenType::Plus));
+        assert_eq!(token_types.next(), Some(TokenType::Semicolon));
+        assert_eq!(token_types.next(), Some(TokenType::Slash));
+        assert_eq!(token_types.next(), Some(TokenType::Star));
+        assert_eq!(token_types.next(), Some(TokenType::Eof));
     }
 }

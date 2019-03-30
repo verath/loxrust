@@ -53,16 +53,16 @@ pub enum TokenType {
     Eof,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum TokenValue {
     LoxString(String),
     LoxNumber(f64),
 }
 
-#[derive(Debug)]
-pub struct Token<'a> {
+#[derive(Debug, PartialEq)]
+pub struct Token {
     pub token_type: TokenType,
-    pub lexeme: &'a str,
+    pub lexeme: String,
     pub line: u64,
     pub value: Option<TokenValue>,
 }
@@ -70,7 +70,7 @@ pub struct Token<'a> {
 pub struct Scanner<'a> {
     source: &'a [u8],
 
-    tokens: Vec<Token<'a>>,
+    tokens: Vec<Token>,
 
     error: bool,
 
@@ -131,7 +131,7 @@ impl Scanner<'_> {
     // add_token creates a token from the current lexeme.
     fn add_token(&mut self, token_type: TokenType, value: Option<TokenValue>) {
         let lexeme = &self.source[self.start..self.current];
-        let lexeme = str::from_utf8(lexeme).unwrap();
+        let lexeme = str::from_utf8(lexeme).unwrap().to_owned();
         let line = self.line;
         self.tokens.push(Token {
             token_type,
@@ -359,7 +359,7 @@ impl Scanner<'_> {
         }
         self.tokens.push(Token {
             token_type: TokenType::Eof,
-            lexeme: "",
+            lexeme: String::from(""),
             line: self.line,
             value: None,
         });
@@ -402,20 +402,30 @@ mod tests {
     fn test_scan_tokens_single_char_tokens() {
         let source = "(){},.-+;/*";
         let mut scanner = Scanner::new(source, &dummy_handle_err);
-        let tokens: Vec<&Token> = scanner.scan_tokens().into_iter().collect();
+        let mut tokens = scanner.scan_tokens().into_iter();
 
-        let mut token_types = tokens.iter().map(|t| t.token_type);
-        assert_eq!(token_types.next(), Some(TokenType::LeftParen));
-        assert_eq!(token_types.next(), Some(TokenType::RightParen));
-        assert_eq!(token_types.next(), Some(TokenType::LeftBrace));
-        assert_eq!(token_types.next(), Some(TokenType::RightBrace));
-        assert_eq!(token_types.next(), Some(TokenType::Comma));
-        assert_eq!(token_types.next(), Some(TokenType::Dot));
-        assert_eq!(token_types.next(), Some(TokenType::Minus));
-        assert_eq!(token_types.next(), Some(TokenType::Plus));
-        assert_eq!(token_types.next(), Some(TokenType::Semicolon));
-        assert_eq!(token_types.next(), Some(TokenType::Slash));
-        assert_eq!(token_types.next(), Some(TokenType::Star));
-        assert_eq!(token_types.next(), Some(TokenType::Eof));
+        fn make_token(token_type: TokenType, lexeme: &str) -> Token {
+            let lexeme = lexeme.to_owned();
+            Token {
+                token_type,
+                lexeme,
+                line: 1,
+                value: None,
+            }
+        }
+
+        use TokenType::*;
+        assert_eq!(tokens.next(), Some(&make_token(LeftParen, "(")));
+        assert_eq!(tokens.next(), Some(&make_token(RightParen, ")")));
+        assert_eq!(tokens.next(), Some(&make_token(LeftBrace, "{")));
+        assert_eq!(tokens.next(), Some(&make_token(RightBrace, "}")));
+        assert_eq!(tokens.next(), Some(&make_token(Comma, ",")));
+        assert_eq!(tokens.next(), Some(&make_token(Dot, ".")));
+        assert_eq!(tokens.next(), Some(&make_token(Minus, "-")));
+        assert_eq!(tokens.next(), Some(&make_token(Plus, "+")));
+        assert_eq!(tokens.next(), Some(&make_token(Semicolon, ";")));
+        assert_eq!(tokens.next(), Some(&make_token(Slash, "/")));
+        assert_eq!(tokens.next(), Some(&make_token(Star, "*")));
+        assert_eq!(tokens.next(), Some(&make_token(Eof, "")));
     }
 }

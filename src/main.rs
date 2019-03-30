@@ -4,7 +4,7 @@ use std::io;
 use std::io::prelude::*;
 use std::process;
 
-use loxrust::Scanner;
+use loxrust::scanner::Scanner;
 
 fn main() {
     let args: Vec<String> = env::args().collect();

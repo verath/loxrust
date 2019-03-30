@@ -1,0 +1,26 @@
+version: 2
+
+jobs:
+  build:
+    docker:
+      - image: 'rust:1'
+    environment:
+      CARGO_HOME: $CIRCLE_WORKING_DIRECTORY/.cargo
+    steps:
+      - run: rustup --version
+      - run: rustup show
+      - run: cargo --version
+      - run: rustup component add rustfmt
+      - checkout
+      - restore_cache:
+          key: cargo-cache-{{ checksum "Cargo.lock" }}
+      - run: cargo build
+      - run: cargo build --release
+      - run: cargo test
+      - run: cargo fmt --all -- --check
+      - save_cache:
+          key: cargo-cache-{{ checksum "Cargo.lock" }}
+          paths:
+            - target
+            - .cargo
+

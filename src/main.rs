@@ -4,9 +4,17 @@ use std::io;
 use std::io::prelude::*;
 use std::process;
 
+use loxrust::expr;
+use loxrust::print::AstPrinter;
 use loxrust::scanner::Scanner;
+use loxrust::token;
 
 fn main() {
+    let value = token::Literal::String("hello wordl!".to_owned());
+    let e = expr::Expr::Literal(expr::LiteralExpr { value });
+    let mut printer = AstPrinter {};
+    println!("{}", printer.print(e));
+
     let args: Vec<String> = env::args().collect();
     if args.len() > 2 {
         println!("Usage: loxrust [script]");

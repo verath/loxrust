@@ -309,29 +309,29 @@ impl Scanner<'_> {
     }
 }
 
+#[cfg(test)]
 mod tests {
     use super::*;
 
-    #[allow(dead_code)]
-    fn dummy_handle_err(_line: u64, _msg: &str) {}
+    fn panic_on_error(line: u64, msg: &str) {
+        panic!("error: '{line}:{msg}'", line = line, msg = msg);
+    }
+
+    fn do_nothing_on_error(_line: u64, _msg: &str) {}
 
     #[test]
     fn test_scan_tokens_appends_eof() {
         let source = "";
-        let mut scanner = Scanner::new(source, &dummy_handle_err);
-        let mut token_types: Vec<TokenType> = scanner
-            .scan_tokens()
-            .into_iter()
-            .map(|t| t.token_type)
-            .collect();
-        assert_eq!(token_types.pop(), Some(TokenType::Eof));
-        assert_eq!(token_types.pop(), None);
+        let mut scanner = Scanner::new(source, &panic_on_error);
+        let mut token_types = scanner.scan_tokens().into_iter().map(|t| t.token_type);
+        assert_eq!(token_types.next(), Some(TokenType::Eof));
+        assert_eq!(token_types.next(), None);
     }
 
     #[test]
-    fn test_scan_tokens_single_char_tokens() {
-        let source = "(){},.-+;/*";
-        let mut scanner = Scanner::new(source, &dummy_handle_err);
+    fn test_scan_simple_tokens() {
+        let source = "( ) { } , . - + ; / * ! != = == > >= < <=";
+        let mut scanner = Scanner::new(source, &panic_on_error);
         let mut tokens = scanner.scan_tokens().into_iter();
 
         fn make_token(token_type: TokenType, lexeme: &str) -> Token {
@@ -345,6 +345,7 @@ mod tests {
         }
 
         use TokenType::*;
+        // One char tokens.
         assert_eq!(tokens.next(), Some(&make_token(LeftParen, "(")));
         assert_eq!(tokens.next(), Some(&make_token(RightParen, ")")));
         assert_eq!(tokens.next(), Some(&make_token(LeftBrace, "{")));
@@ -356,6 +357,136 @@ mod tests {
         assert_eq!(tokens.next(), Some(&make_token(Semicolon, ";")));
         assert_eq!(tokens.next(), Some(&make_token(Slash, "/")));
         assert_eq!(tokens.next(), Some(&make_token(Star, "*")));
+        // One or two char tokens.
+        assert_eq!(tokens.next(), Some(&make_token(Bang, "!")));
+        assert_eq!(tokens.next(), Some(&make_token(BangEqual, "!=")));
+        assert_eq!(tokens.next(), Some(&make_token(Equal, "=")));
+        assert_eq!(tokens.next(), Some(&make_token(EqualEqual, "==")));
+        assert_eq!(tokens.next(), Some(&make_token(Greater, ">")));
+        assert_eq!(tokens.next(), Some(&make_token(GreaterEqual, ">=")));
+        assert_eq!(tokens.next(), Some(&make_token(Less, "<")));
+        assert_eq!(tokens.next(), Some(&make_token(LessEqual, "<=")));
+
         assert_eq!(tokens.next(), Some(&make_token(Eof, "")));
     }
+
+    #[test]
+    fn test_scan_identifer() {
+        let source = " abc _def gHiJ kl_mn a1 0a ";
+        let mut scanner = Scanner::new(source, &panic_on_error);
+        let mut tokens = scanner.scan_tokens().into_iter();
+
+        fn make_identifer_token(identifier: &str) -> Token {
+            let lexeme = identifier.to_owned();
+            Token {
+                token_type: TokenType::Identifier,
+                lexeme,
+                line: 1,
+                literal: None,
+            }
+        }
+
+        assert_eq!(tokens.next(), Some(&make_identifer_token("abc")));
+        assert_eq!(tokens.next(), Some(&make_identifer_token("_def")));
+        assert_eq!(tokens.next(), Some(&make_identifer_token("gHiJ")));
+        assert_eq!(tokens.next(), Some(&make_identifer_token("kl_mn")));
+        assert_eq!(tokens.next(), Some(&make_identifer_token("a1")));
+        assert_eq!(tokens.next().map(|t| t.token_type), Some(TokenType::Number));
+        assert_eq!(tokens.next(), Some(&make_identifer_token("a")));
+        assert_eq!(tokens.next().map(|t| t.token_type), Some(TokenType::Eof));
+    }
+
+    #[test]
+    fn test_scan_keyword() {
+        let source = " for IF force ";
+        let mut scanner = Scanner::new(source, &panic_on_error);
+        let mut token_types = scanner.scan_tokens().into_iter().map(|t| t.token_type);
+
+        assert_eq!(token_types.next(), Some(TokenType::For));
+        assert_eq!(token_types.next(), Some(TokenType::Identifier));
+        assert_eq!(token_types.next(), Some(TokenType::Identifier));
+        assert_eq!(token_types.next(), Some(TokenType::Eof));
+    }
+
+    #[test]
+    fn test_scan_string() {
+        let source = " \"ab\" \"c\nd\" \"ef\" ";
+        let mut scanner = Scanner::new(source, &panic_on_error);
+        let mut tokens = scanner.scan_tokens().into_iter();
+
+        fn make_string_token(s: &str, line: u64) -> Token {
+            let lexeme = format!(r#""{}""#, s); // Add quotes.
+            let literal = Some(Literal::String(s.to_owned()));
+            Token {
+                token_type: TokenType::String,
+                lexeme,
+                line,
+                literal,
+            }
+        }
+
+        assert_eq!(tokens.next(), Some(&make_string_token("ab", 1)));
+        assert_eq!(tokens.next(), Some(&make_string_token("c\nd", 2)));
+        assert_eq!(tokens.next(), Some(&make_string_token("ef", 2)));
+        assert_eq!(tokens.next().map(|t| t.token_type), Some(TokenType::Eof));
+    }
+
+    #[test]
+    fn test_scan_number() {
+        let source = " 111 111.222 -333 444. ";
+        let mut scanner = Scanner::new(source, &panic_on_error);
+        let mut tokens = scanner.scan_tokens().into_iter();
+
+        fn make_number_token(n: f64) -> Token {
+            let lexeme = format!("{}", n);
+            let literal = Some(Literal::Number(n));
+            Token {
+                token_type: TokenType::Number,
+                lexeme,
+                line: 1,
+                literal,
+            }
+        }
+
+        assert_eq!(tokens.next(), Some(&make_number_token(111.0)));
+        assert_eq!(tokens.next(), Some(&make_number_token(111.222)));
+        assert_eq!(tokens.next().map(|t| t.token_type), Some(TokenType::Minus));
+        assert_eq!(tokens.next(), Some(&make_number_token(333.0)));
+        assert_eq!(tokens.next(), Some(&make_number_token(444.0)));
+        assert_eq!(tokens.next().map(|t| t.token_type), Some(TokenType::Dot));
+        assert_eq!(tokens.next().map(|t| t.token_type), Some(TokenType::Eof));
+    }
+
+    #[test]
+    #[should_panic(expected = "2:Unexpected character '~'.")]
+    fn test_scan_tokens_unexpected_token() {
+        let source = "\n~";
+        let mut scanner = Scanner::new(source, &panic_on_error);
+        let _ts: Vec<&Token> = scanner.scan_tokens().into_iter().collect();
+    }
+
+    #[test]
+    #[should_panic(expected = "3:Unterminated string.")]
+    fn test_scan_tokens_unterminated_string() {
+        let source = "\n\"\n";
+        let mut scanner = Scanner::new(source, &panic_on_error);
+        let _ts: Vec<&Token> = scanner.scan_tokens().into_iter().collect();
+    }
+
+    #[test]
+    fn test_had_error_ok_scan() {
+        let source = "";
+        let mut scanner = Scanner::new(source, &panic_on_error);
+        scanner.scan_tokens();
+        assert_eq!(scanner.had_error(), false);
+    }
+
+    #[test]
+    fn test_had_error_failed_scan() {
+        let source = "~"; // Unexpected token '~'.
+        let mut scanner = Scanner::new(source, &do_nothing_on_error);
+        scanner.scan_tokens();
+        assert_eq!(scanner.had_error(), true);
+    }
+
 }

@@ -304,29 +304,23 @@ impl Scanner<'_> {
                     Some(TokenType::Slash)
                 }
             }
-
             '\n' => {
                 self.line += 1;
                 None
             }
-
             '"' => {
                 self.string();
                 None // self.string handles adding token.
             }
-
             _ if Scanner::is_digit(ch) => {
                 self.number();
                 None // self.number handles adding token.
             }
-
             _ if Scanner::is_alpha(ch) => {
                 self.identifier();
                 None // self.identifier handles adding token.
             }
-
             _ if Scanner::is_whitespace(ch) => None, // Ignore whitespace.
-
             _ => {
                 self.report_error(&format!("Unexpected character '{}'.", ch));
                 None

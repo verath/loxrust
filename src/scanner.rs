@@ -1,6 +1,6 @@
 use std::str;
 
-use super::token::{Token, TokenType, TokenValue};
+use super::token::{Literal, Token, TokenType};
 use super::ErrorCallback;
 
 pub struct Scanner<'a> {
@@ -65,7 +65,7 @@ impl Scanner<'_> {
     }
 
     // add_token creates a token from the current lexeme.
-    fn add_token(&mut self, token_type: TokenType, value: Option<TokenValue>) {
+    fn add_token(&mut self, token_type: TokenType, literal: Option<Literal>) {
         let lexeme = &self.source[self.start..self.current];
         let lexeme = str::from_utf8(lexeme).unwrap().to_owned();
         let line = self.line;
@@ -73,7 +73,7 @@ impl Scanner<'_> {
             token_type,
             lexeme,
             line,
-            value,
+            literal,
         });
     }
 
@@ -149,7 +149,7 @@ impl Scanner<'_> {
         let value = &self.source[(self.start + 1)..(self.current - 1)];
         // Convert to owned String
         let value = str::from_utf8(value).unwrap();
-        let value = TokenValue::LoxString(value.to_owned());
+        let value = Literal::String(value.to_owned());
         self.add_token(TokenType::String, Some(value));
     }
 
@@ -171,7 +171,7 @@ impl Scanner<'_> {
         let value = &self.source[(self.start)..(self.current)];
         let value = str::from_utf8(value).unwrap();
         let value: f64 = value.parse().unwrap();
-        let value = TokenValue::LoxNumber(value);
+        let value = Literal::Number(value);
         self.add_token(TokenType::Number, Some(value));
     }
 
@@ -291,7 +291,7 @@ impl Scanner<'_> {
             token_type: TokenType::Eof,
             lexeme: String::from(""),
             line: self.line,
-            value: None,
+            literal: None,
         });
         &self.tokens
     }
@@ -340,7 +340,7 @@ mod tests {
                 token_type,
                 lexeme,
                 line: 1,
-                value: None,
+                literal: None,
             }
         }
 

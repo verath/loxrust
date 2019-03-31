@@ -3,7 +3,7 @@ pub struct Token {
     pub token_type: TokenType,
     pub lexeme: String,
     pub line: u64,
-    pub value: Option<TokenValue>,
+    pub literal: Option<Literal>,
 }
 
 #[derive(Debug, PartialEq, Copy, Clone)]
@@ -58,7 +58,7 @@ pub enum TokenType {
 }
 
 #[derive(Debug, PartialEq)]
-pub enum TokenValue {
-    LoxString(String),
-    LoxNumber(f64),
+pub enum Literal {
+    String(String),
+    Number(f64),
 }

@@ -7,6 +7,33 @@ pub enum Expr {
     Unary(UnaryExpr),
 }
 
+impl Expr {
+    pub fn make_binary(left: Expr, operator: Token, right: Expr) -> Expr {
+        Expr::Binary(BinaryExpr {
+            left: Box::new(left),
+            operator,
+            right: Box::new(right),
+        })
+    }
+
+    pub fn make_grouping(expression: Expr) -> Expr {
+        Expr::Grouping(GroupingExpr {
+            expression: Box::new(expression),
+        })
+    }
+
+    pub fn make_literal(value: token::Literal) -> Expr {
+        Expr::Literal(LiteralExpr { value })
+    }
+
+    pub fn make_unary(operator: Token, expression: Expr) -> Expr {
+        Expr::Unary(UnaryExpr {
+            operator,
+            expression: Box::new(expression),
+        })
+    }
+}
+
 pub struct BinaryExpr {
     pub left: Box<Expr>,
     pub operator: Token,

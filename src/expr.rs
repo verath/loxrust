@@ -53,12 +53,12 @@ impl AcceptsVisitor for Expr {
 
 impl AcceptsVisitor for BinaryExpr {
     fn accept<V: Visitor>(&self, visitor: &mut V) -> V::Result {
-        return visitor.visit_binary_expr(self);
+        visitor.visit_binary_expr(self)
     }
 }
 
 impl AcceptsVisitor for GroupingExpr {
     fn accept<V: Visitor>(&self, visitor: &mut V) -> V::Result {
-        return visitor.visit_grouping_expr(self);
+        visitor.visit_grouping_expr(self)
     }
 }

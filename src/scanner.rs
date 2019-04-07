@@ -8,9 +8,12 @@ pub struct Scanner<'a> {
 
     tokens: Vec<Token>,
 
-    error: bool,
+    // had_error is set to true if any error is encountered while scanning.
+    had_error: bool,
 
-    error_cb: &'a ErrorCallback,
+    // error_cb is an optional ErrorCallback that will be notified for each
+    // (if any) errors encountered while scanning.
+    error_cb: Option<&'a ErrorCallback>,
 
     // start is the offset in source of the first character of the
     // lexeme we are currently considering.
@@ -272,16 +275,20 @@ impl Scanner<'_> {
         self.current >= self.source.len()
     }
 
+    // report_error reports an error on the current line with the provided
+    // msg to the registered error_cb. report_error also sets the had_error
+    // flag.
     fn report_error(&mut self, msg: &str) {
-        self.error = true;
-        (self.error_cb)(self.line, msg)
+        self.had_error = true;
+        if let Some(f) = self.error_cb {
+            f(self.line, msg)
+        }
     }
 
-    pub fn had_error(&self) -> bool {
-        self.error
-    }
-
-    pub fn scan_tokens(&mut self) -> impl IntoIterator<Item = &Token> + '_ {
+    // scan_tokens scans the source for tokens returning a tuple (had_error, tokens)
+    // where had_error is false only if all characters in source were successfully
+    // consumed, and tokens is the successfully scanned tokens.
+    pub fn scan_tokens(&mut self) -> (bool, impl IntoIterator<Item = &Token> + '_) {
         while !self.is_at_end() {
             // We are at the beginning of the next lexeme.
             self.start = self.current;
@@ -293,14 +300,14 @@ impl Scanner<'_> {
             line: self.line,
             literal: None,
         });
-        &self.tokens
+        (self.had_error, &self.tokens)
     }
 
-    pub fn new<'a, 'e: 'a>(source: &'a str, error_cb: &'e ErrorCallback) -> Scanner<'a> {
+    pub fn new<'a, 'e: 'a>(source: &'a str, error_cb: Option<&'e ErrorCallback>) -> Scanner<'a> {
         Scanner {
             source: source.as_bytes(),
             tokens: Vec::new(),
-            error: false,
+            had_error: false,
             error_cb,
             start: 0,
             current: 0,
@@ -317,13 +324,12 @@ mod tests {
         panic!("error: '{line}:{msg}'", line = line, msg = msg);
     }
 
-    fn do_nothing_on_error(_line: u64, _msg: &str) {}
-
     #[test]
     fn test_scan_tokens_appends_eof() {
         let source = "";
-        let mut scanner = Scanner::new(source, &panic_on_error);
-        let mut token_types = scanner.scan_tokens().into_iter().map(|t| t.token_type);
+        let mut scanner = Scanner::new(source, Some(&panic_on_error));
+        let (_, tokens) = scanner.scan_tokens();
+        let mut token_types = tokens.into_iter().map(|t| t.token_type);
         assert_eq!(token_types.next(), Some(TokenType::Eof));
         assert_eq!(token_types.next(), None);
     }
@@ -331,8 +337,9 @@ mod tests {
     #[test]
     fn test_scan_simple_tokens() {
         let source = "( ) { } , . - + ; / * ! != = == > >= < <=";
-        let mut scanner = Scanner::new(source, &panic_on_error);
-        let mut tokens = scanner.scan_tokens().into_iter();
+        let mut scanner = Scanner::new(source, Some(&panic_on_error));
+        let (_, tokens) = scanner.scan_tokens();
+        let mut tokens = tokens.into_iter();
 
         fn make_token(token_type: TokenType, lexeme: &str) -> Token {
             let lexeme = lexeme.to_owned();
@@ -373,8 +380,9 @@ mod tests {
     #[test]
     fn test_scan_identifer() {
         let source = " abc _def gHiJ kl_mn a1 0a ";
-        let mut scanner = Scanner::new(source, &panic_on_error);
-        let mut tokens = scanner.scan_tokens().into_iter();
+        let mut scanner = Scanner::new(source, Some(&panic_on_error));
+        let (_, tokens) = scanner.scan_tokens();
+        let mut tokens = tokens.into_iter();
 
         fn make_identifer_token(identifier: &str) -> Token {
             let lexeme = identifier.to_owned();
@@ -399,8 +407,9 @@ mod tests {
     #[test]
     fn test_scan_keyword() {
         let source = " for IF force ";
-        let mut scanner = Scanner::new(source, &panic_on_error);
-        let mut token_types = scanner.scan_tokens().into_iter().map(|t| t.token_type);
+        let mut scanner = Scanner::new(source, Some(&panic_on_error));
+        let (_, tokens) = scanner.scan_tokens();
+        let mut token_types = tokens.into_iter().map(|t| t.token_type);
 
         assert_eq!(token_types.next(), Some(TokenType::For));
         assert_eq!(token_types.next(), Some(TokenType::Identifier));
@@ -411,8 +420,9 @@ mod tests {
     #[test]
     fn test_scan_string() {
         let source = " \"ab\" \"c\nd\" \"ef\" ";
-        let mut scanner = Scanner::new(source, &panic_on_error);
-        let mut tokens = scanner.scan_tokens().into_iter();
+        let mut scanner = Scanner::new(source, Some(&panic_on_error));
+        let (_, tokens) = scanner.scan_tokens();
+        let mut tokens = tokens.into_iter();
 
         fn make_string_token(s: &str, line: u64) -> Token {
             let lexeme = format!(r#""{}""#, s); // Add quotes.
@@ -434,8 +444,9 @@ mod tests {
     #[test]
     fn test_scan_number() {
         let source = " 111 111.222 -333 444. ";
-        let mut scanner = Scanner::new(source, &panic_on_error);
-        let mut tokens = scanner.scan_tokens().into_iter();
+        let mut scanner = Scanner::new(source, Some(&panic_on_error));
+        let (_, tokens) = scanner.scan_tokens();
+        let mut tokens = tokens.into_iter();
 
         fn make_number_token(n: f64) -> Token {
             let lexeme = format!("{}", n);
@@ -461,32 +472,32 @@ mod tests {
     #[should_panic(expected = "2:Unexpected character '~'.")]
     fn test_scan_tokens_unexpected_token() {
         let source = "\n~";
-        let mut scanner = Scanner::new(source, &panic_on_error);
-        let _ts: Vec<&Token> = scanner.scan_tokens().into_iter().collect();
+        let mut scanner = Scanner::new(source, Some(&panic_on_error));
+        scanner.scan_tokens();
     }
 
     #[test]
     #[should_panic(expected = "3:Unterminated string.")]
     fn test_scan_tokens_unterminated_string() {
         let source = "\n\"\n";
-        let mut scanner = Scanner::new(source, &panic_on_error);
-        let _ts: Vec<&Token> = scanner.scan_tokens().into_iter().collect();
+        let mut scanner = Scanner::new(source, Some(&panic_on_error));
+        scanner.scan_tokens();
     }
 
     #[test]
     fn test_had_error_ok_scan() {
         let source = "";
-        let mut scanner = Scanner::new(source, &panic_on_error);
-        scanner.scan_tokens();
-        assert_eq!(scanner.had_error(), false);
+        let mut scanner = Scanner::new(source, Some(&panic_on_error));
+        let (had_error, _) = scanner.scan_tokens();
+        assert_eq!(had_error, false);
     }
 
     #[test]
     fn test_had_error_failed_scan() {
         let source = "~"; // Unexpected token '~'.
-        let mut scanner = Scanner::new(source, &do_nothing_on_error);
-        scanner.scan_tokens();
-        assert_eq!(scanner.had_error(), true);
+        let mut scanner = Scanner::new(source, None);
+        let (had_error, _) = scanner.scan_tokens();
+        assert_eq!(had_error, true);
     }
 
 }

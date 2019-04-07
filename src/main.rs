@@ -47,8 +47,8 @@ fn run(source: &str) -> bool {
         eprintln!("[line {}] Error: {}", line, msg);
     }
 
-    let mut scanner = Scanner::new(source, Some(&print_error));
-    let (had_error, tokens) = scanner.scan_tokens();
+    let scanner = Scanner::new(Some(&print_error));
+    let (had_error, tokens) = scanner.scan_tokens(source);
     for token in tokens {
         println!("{:?}", token);
     }

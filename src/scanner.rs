@@ -3,7 +3,30 @@ use std::str;
 use super::token::{Literal, Token, TokenType};
 use super::ErrorCallback;
 
+// A Scanner turns a string of characters into Tokens.
 pub struct Scanner<'a> {
+    // error_cb is an optional ErrorCallback that will be notified for each
+    // (if any) errors encountered while scanning.
+    error_cb: Option<&'a ErrorCallback>,
+}
+
+impl<'a> Scanner<'a> {
+    // new creates a new scanner, with the optional error_cb. error_cb is called
+    // for each error encountered while scanning.
+    pub fn new(error_cb: Option<&'a ErrorCallback>) -> Self {
+        Scanner { error_cb }
+    }
+
+    // scan_tokens scans the source for tokens returning a tuple (had_error, tokens)
+    // where had_error is false only if all characters in source were successfully
+    // consumed, and tokens is the successfully scanned tokens.
+    pub fn scan_tokens<'s>(&self, source: &'s str) -> (bool, impl IntoIterator<Item = Token>) {
+        ScannerContext::new(source, self.error_cb).scan_tokens()
+    }
+}
+
+// ScannerContext encapsulates the state of a single scan for some source.
+struct ScannerContext<'a> {
     source: &'a [u8],
 
     tokens: Vec<Token>,
@@ -26,7 +49,42 @@ pub struct Scanner<'a> {
     line: u64,
 }
 
-impl Scanner<'_> {
+impl<'a> ScannerContext<'a> {
+    pub fn new(source: &'a str, error_cb: Option<&'a ErrorCallback>) -> Self {
+        ScannerContext {
+            source: source.as_bytes(),
+            tokens: Vec::new(),
+            had_error: false,
+            error_cb,
+            start: 0,
+            current: 0,
+            line: 1,
+        }
+    }
+
+    // scan_tokens scans the source for tokens returning a tuple (had_error, tokens)
+    // where had_error is false only if all characters in source were successfully
+    // consumed, and tokens is the successfully scanned tokens.
+    pub fn scan_tokens(&mut self) -> (bool, impl IntoIterator<Item = Token>) {
+        // Scanning the same source multiple times is not supported without
+        // creating a new ScannerContext.
+        assert!(self.current == 0);
+
+        while !self.is_at_end() {
+            // We are at the beginning of the next lexeme.
+            self.start = self.current;
+            self.scan_token()
+        }
+        self.tokens.push(Token {
+            token_type: TokenType::Eof,
+            lexeme: String::from(""),
+            line: self.line,
+            literal: None,
+        });
+        let tokens = std::mem::replace(&mut self.tokens, Vec::new());
+        (self.had_error, tokens)
+    }
+
     fn is_digit(ch: char) -> bool {
         ch.is_digit(10)
     }
@@ -36,7 +94,7 @@ impl Scanner<'_> {
     }
 
     fn is_alpha_numeric(ch: char) -> bool {
-        Scanner::is_digit(ch) || Scanner::is_alpha(ch)
+        Self::is_digit(ch) || Self::is_alpha(ch)
     }
 
     fn is_whitespace(ch: char) -> bool {
@@ -158,15 +216,15 @@ impl Scanner<'_> {
 
     // number consumes a number, producing a Number token.
     fn number(&mut self) {
-        while Scanner::is_digit(self.peek()) {
+        while Self::is_digit(self.peek()) {
             self.advance();
         }
 
         // Possibly a decimal number.
-        if self.peek() == '.' && Scanner::is_digit(self.peek_next()) {
+        if self.peek() == '.' && Self::is_digit(self.peek_next()) {
             // Consume the '.'
             self.advance();
-            while Scanner::is_digit(self.peek()) {
+            while Self::is_digit(self.peek()) {
                 self.advance();
             }
         }
@@ -182,14 +240,14 @@ impl Scanner<'_> {
     // If the identifier matches a reserved keyword a token for that
     // matched keyword is produced instead.
     fn identifier(&mut self) {
-        while Scanner::is_alpha_numeric(self.peek()) {
+        while Self::is_alpha_numeric(self.peek()) {
             self.advance();
         }
 
         // Test for reserved keyword.
         let text = &self.source[(self.start)..(self.current)];
         let text = str::from_utf8(text).unwrap();
-        let token_type = Scanner::keyword(text).unwrap_or(TokenType::Identifier);
+        let token_type = Self::keyword(text).unwrap_or(TokenType::Identifier);
         self.add_token(token_type, None);
     }
 
@@ -252,15 +310,15 @@ impl Scanner<'_> {
                 self.string();
                 None // self.string handles adding token.
             }
-            _ if Scanner::is_digit(ch) => {
+            _ if Self::is_digit(ch) => {
                 self.number();
                 None // self.number handles adding token.
             }
-            _ if Scanner::is_alpha(ch) => {
+            _ if Self::is_alpha(ch) => {
                 self.identifier();
                 None // self.identifier handles adding token.
             }
-            _ if Scanner::is_whitespace(ch) => None, // Ignore whitespace.
+            _ if Self::is_whitespace(ch) => None, // Ignore whitespace.
             _ => {
                 self.report_error(&format!("Unexpected character '{}'.", ch));
                 None
@@ -284,36 +342,6 @@ impl Scanner<'_> {
             f(self.line, msg)
         }
     }
-
-    // scan_tokens scans the source for tokens returning a tuple (had_error, tokens)
-    // where had_error is false only if all characters in source were successfully
-    // consumed, and tokens is the successfully scanned tokens.
-    pub fn scan_tokens(&mut self) -> (bool, impl IntoIterator<Item = &Token> + '_) {
-        while !self.is_at_end() {
-            // We are at the beginning of the next lexeme.
-            self.start = self.current;
-            self.scan_token()
-        }
-        self.tokens.push(Token {
-            token_type: TokenType::Eof,
-            lexeme: String::from(""),
-            line: self.line,
-            literal: None,
-        });
-        (self.had_error, &self.tokens)
-    }
-
-    pub fn new<'a, 'e: 'a>(source: &'a str, error_cb: Option<&'e ErrorCallback>) -> Scanner<'a> {
-        Scanner {
-            source: source.as_bytes(),
-            tokens: Vec::new(),
-            had_error: false,
-            error_cb,
-            start: 0,
-            current: 0,
-            line: 1,
-        }
-    }
 }
 
 #[cfg(test)]
@@ -327,18 +355,29 @@ mod tests {
     #[test]
     fn test_scan_tokens_appends_eof() {
         let source = "";
-        let mut scanner = Scanner::new(source, Some(&panic_on_error));
-        let (_, tokens) = scanner.scan_tokens();
+        let scanner = Scanner::new(Some(&panic_on_error));
+        let (_, tokens) = scanner.scan_tokens(source);
         let mut token_types = tokens.into_iter().map(|t| t.token_type);
         assert_eq!(token_types.next(), Some(TokenType::Eof));
         assert_eq!(token_types.next(), None);
     }
 
     #[test]
+    fn test_scan_tokens_twice() {
+        let source = "";
+        let scanner = Scanner::new(Some(&panic_on_error));
+        let (_, tokens) = scanner.scan_tokens(source);
+        let tokens: Vec<Token> = tokens.into_iter().collect();
+        let (_, tokens2) = scanner.scan_tokens(source);
+        let tokens2: Vec<Token> = tokens2.into_iter().collect();
+        assert_eq!(tokens, tokens2);
+    }
+
+    #[test]
     fn test_scan_simple_tokens() {
         let source = "( ) { } , . - + ; / * ! != = == > >= < <=";
-        let mut scanner = Scanner::new(source, Some(&panic_on_error));
-        let (_, tokens) = scanner.scan_tokens();
+        let scanner = Scanner::new(Some(&panic_on_error));
+        let (_, tokens) = scanner.scan_tokens(source);
         let mut tokens = tokens.into_iter();
 
         fn make_token(token_type: TokenType, lexeme: &str) -> Token {
@@ -353,35 +392,35 @@ mod tests {
 
         use TokenType::*;
         // One char tokens.
-        assert_eq!(tokens.next(), Some(&make_token(LeftParen, "(")));
-        assert_eq!(tokens.next(), Some(&make_token(RightParen, ")")));
-        assert_eq!(tokens.next(), Some(&make_token(LeftBrace, "{")));
-        assert_eq!(tokens.next(), Some(&make_token(RightBrace, "}")));
-        assert_eq!(tokens.next(), Some(&make_token(Comma, ",")));
-        assert_eq!(tokens.next(), Some(&make_token(Dot, ".")));
-        assert_eq!(tokens.next(), Some(&make_token(Minus, "-")));
-        assert_eq!(tokens.next(), Some(&make_token(Plus, "+")));
-        assert_eq!(tokens.next(), Some(&make_token(Semicolon, ";")));
-        assert_eq!(tokens.next(), Some(&make_token(Slash, "/")));
-        assert_eq!(tokens.next(), Some(&make_token(Star, "*")));
+        assert_eq!(tokens.next(), Some(make_token(LeftParen, "(")));
+        assert_eq!(tokens.next(), Some(make_token(RightParen, ")")));
+        assert_eq!(tokens.next(), Some(make_token(LeftBrace, "{")));
+        assert_eq!(tokens.next(), Some(make_token(RightBrace, "}")));
+        assert_eq!(tokens.next(), Some(make_token(Comma, ",")));
+        assert_eq!(tokens.next(), Some(make_token(Dot, ".")));
+        assert_eq!(tokens.next(), Some(make_token(Minus, "-")));
+        assert_eq!(tokens.next(), Some(make_token(Plus, "+")));
+        assert_eq!(tokens.next(), Some(make_token(Semicolon, ";")));
+        assert_eq!(tokens.next(), Some(make_token(Slash, "/")));
+        assert_eq!(tokens.next(), Some(make_token(Star, "*")));
         // One or two char tokens.
-        assert_eq!(tokens.next(), Some(&make_token(Bang, "!")));
-        assert_eq!(tokens.next(), Some(&make_token(BangEqual, "!=")));
-        assert_eq!(tokens.next(), Some(&make_token(Equal, "=")));
-        assert_eq!(tokens.next(), Some(&make_token(EqualEqual, "==")));
-        assert_eq!(tokens.next(), Some(&make_token(Greater, ">")));
-        assert_eq!(tokens.next(), Some(&make_token(GreaterEqual, ">=")));
-        assert_eq!(tokens.next(), Some(&make_token(Less, "<")));
-        assert_eq!(tokens.next(), Some(&make_token(LessEqual, "<=")));
+        assert_eq!(tokens.next(), Some(make_token(Bang, "!")));
+        assert_eq!(tokens.next(), Some(make_token(BangEqual, "!=")));
+        assert_eq!(tokens.next(), Some(make_token(Equal, "=")));
+        assert_eq!(tokens.next(), Some(make_token(EqualEqual, "==")));
+        assert_eq!(tokens.next(), Some(make_token(Greater, ">")));
+        assert_eq!(tokens.next(), Some(make_token(GreaterEqual, ">=")));
+        assert_eq!(tokens.next(), Some(make_token(Less, "<")));
+        assert_eq!(tokens.next(), Some(make_token(LessEqual, "<=")));
 
-        assert_eq!(tokens.next(), Some(&make_token(Eof, "")));
+        assert_eq!(tokens.next(), Some(make_token(Eof, "")));
     }
 
     #[test]
     fn test_scan_identifer() {
         let source = " abc _def gHiJ kl_mn a1 0a ";
-        let mut scanner = Scanner::new(source, Some(&panic_on_error));
-        let (_, tokens) = scanner.scan_tokens();
+        let scanner = Scanner::new(Some(&panic_on_error));
+        let (_, tokens) = scanner.scan_tokens(source);
         let mut tokens = tokens.into_iter();
 
         fn make_identifer_token(identifier: &str) -> Token {
@@ -394,21 +433,21 @@ mod tests {
             }
         }
 
-        assert_eq!(tokens.next(), Some(&make_identifer_token("abc")));
-        assert_eq!(tokens.next(), Some(&make_identifer_token("_def")));
-        assert_eq!(tokens.next(), Some(&make_identifer_token("gHiJ")));
-        assert_eq!(tokens.next(), Some(&make_identifer_token("kl_mn")));
-        assert_eq!(tokens.next(), Some(&make_identifer_token("a1")));
+        assert_eq!(tokens.next(), Some(make_identifer_token("abc")));
+        assert_eq!(tokens.next(), Some(make_identifer_token("_def")));
+        assert_eq!(tokens.next(), Some(make_identifer_token("gHiJ")));
+        assert_eq!(tokens.next(), Some(make_identifer_token("kl_mn")));
+        assert_eq!(tokens.next(), Some(make_identifer_token("a1")));
         assert_eq!(tokens.next().map(|t| t.token_type), Some(TokenType::Number));
-        assert_eq!(tokens.next(), Some(&make_identifer_token("a")));
+        assert_eq!(tokens.next(), Some(make_identifer_token("a")));
         assert_eq!(tokens.next().map(|t| t.token_type), Some(TokenType::Eof));
     }
 
     #[test]
     fn test_scan_keyword() {
         let source = " for IF force ";
-        let mut scanner = Scanner::new(source, Some(&panic_on_error));
-        let (_, tokens) = scanner.scan_tokens();
+        let scanner = Scanner::new(Some(&panic_on_error));
+        let (_, tokens) = scanner.scan_tokens(source);
         let mut token_types = tokens.into_iter().map(|t| t.token_type);
 
         assert_eq!(token_types.next(), Some(TokenType::For));
@@ -420,8 +459,8 @@ mod tests {
     #[test]
     fn test_scan_string() {
         let source = " \"ab\" \"c\nd\" \"ef\" ";
-        let mut scanner = Scanner::new(source, Some(&panic_on_error));
-        let (_, tokens) = scanner.scan_tokens();
+        let scanner = Scanner::new(Some(&panic_on_error));
+        let (_, tokens) = scanner.scan_tokens(source);
         let mut tokens = tokens.into_iter();
 
         fn make_string_token(s: &str, line: u64) -> Token {
@@ -435,17 +474,17 @@ mod tests {
             }
         }
 
-        assert_eq!(tokens.next(), Some(&make_string_token("ab", 1)));
-        assert_eq!(tokens.next(), Some(&make_string_token("c\nd", 2)));
-        assert_eq!(tokens.next(), Some(&make_string_token("ef", 2)));
+        assert_eq!(tokens.next(), Some(make_string_token("ab", 1)));
+        assert_eq!(tokens.next(), Some(make_string_token("c\nd", 2)));
+        assert_eq!(tokens.next(), Some(make_string_token("ef", 2)));
         assert_eq!(tokens.next().map(|t| t.token_type), Some(TokenType::Eof));
     }
 
     #[test]
     fn test_scan_number() {
         let source = " 111 111.222 -333 444. ";
-        let mut scanner = Scanner::new(source, Some(&panic_on_error));
-        let (_, tokens) = scanner.scan_tokens();
+        let scanner = Scanner::new(Some(&panic_on_error));
+        let (_, tokens) = scanner.scan_tokens(source);
         let mut tokens = tokens.into_iter();
 
         fn make_number_token(n: f64) -> Token {
@@ -459,11 +498,11 @@ mod tests {
             }
         }
 
-        assert_eq!(tokens.next(), Some(&make_number_token(111.0)));
-        assert_eq!(tokens.next(), Some(&make_number_token(111.222)));
+        assert_eq!(tokens.next(), Some(make_number_token(111.0)));
+        assert_eq!(tokens.next(), Some(make_number_token(111.222)));
         assert_eq!(tokens.next().map(|t| t.token_type), Some(TokenType::Minus));
-        assert_eq!(tokens.next(), Some(&make_number_token(333.0)));
-        assert_eq!(tokens.next(), Some(&make_number_token(444.0)));
+        assert_eq!(tokens.next(), Some(make_number_token(333.0)));
+        assert_eq!(tokens.next(), Some(make_number_token(444.0)));
         assert_eq!(tokens.next().map(|t| t.token_type), Some(TokenType::Dot));
         assert_eq!(tokens.next().map(|t| t.token_type), Some(TokenType::Eof));
     }
@@ -472,31 +511,31 @@ mod tests {
     #[should_panic(expected = "2:Unexpected character '~'.")]
     fn test_scan_tokens_unexpected_token() {
         let source = "\n~";
-        let mut scanner = Scanner::new(source, Some(&panic_on_error));
-        scanner.scan_tokens();
+        let scanner = Scanner::new(Some(&panic_on_error));
+        scanner.scan_tokens(source);
     }
 
     #[test]
     #[should_panic(expected = "3:Unterminated string.")]
     fn test_scan_tokens_unterminated_string() {
         let source = "\n\"\n";
-        let mut scanner = Scanner::new(source, Some(&panic_on_error));
-        scanner.scan_tokens();
+        let scanner = Scanner::new(Some(&panic_on_error));
+        scanner.scan_tokens(source);
     }
 
     #[test]
     fn test_had_error_ok_scan() {
         let source = "";
-        let mut scanner = Scanner::new(source, Some(&panic_on_error));
-        let (had_error, _) = scanner.scan_tokens();
+        let scanner = Scanner::new(Some(&panic_on_error));
+        let (had_error, _) = scanner.scan_tokens(source);
         assert_eq!(had_error, false);
     }
 
     #[test]
     fn test_had_error_failed_scan() {
         let source = "~"; // Unexpected token '~'.
-        let mut scanner = Scanner::new(source, None);
-        let (had_error, _) = scanner.scan_tokens();
+        let scanner = Scanner::new(None);
+        let (had_error, _) = scanner.scan_tokens(source);
         assert_eq!(had_error, true);
     }
 
